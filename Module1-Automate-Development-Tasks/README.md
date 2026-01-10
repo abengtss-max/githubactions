@@ -4,8 +4,8 @@
 
 This module provides comprehensive, hands-on labs for the GitHub Actions certification course "Automate development tasks by using GitHub Actions". All labs are designed with Azure integration and provide detailed steps, explanations, and best practices.
 
-**Duration:** Approximately 3-4 hours  
-**Level:** Beginner to Intermediate  
+**Duration:** Approximately 9.5 hours  
+**Level:** Beginner to Advanced  
 **Prerequisites:**
 - Active GitHub account
 - Active Azure subscription (free tier acceptable)
@@ -21,11 +21,15 @@ By completing these labs, you will:
 3. Build container actions and JavaScript actions
 4. Integrate GitHub Actions with Azure services
 5. Implement CI/CD automation for Azure deployments
-6. Apply best practices for workflow security and optimization
+6. Automate GitHub operations with GitHub Script and APIs
+7. Publish packages to GitHub Packages and Container Registry
+8. Create reusable workflows and manage artifacts
+9. Set up and manage enterprise runners and self-hosted infrastructure
+10. Apply best practices for workflow security and optimization
 
 ## 📋 Lab Structure
 
-This module contains 6 comprehensive labs:
+This module contains 10 comprehensive labs covering all GitHub Actions certification topics:
 
 | Lab | Title | Duration | Complexity |
 |-----|-------|----------|------------|
@@ -35,6 +39,10 @@ This module contains 6 comprehensive labs:
 | Lab 4 | Configuring Advanced Workflow Triggers | 45 min | Intermediate |
 | Lab 5 | Creating JavaScript Actions with Azure SDK | 60 min | Intermediate |
 | Lab 6 | End-to-End CI/CD Pipeline to Azure | 90 min | Intermediate |
+| Lab 7 | Automating with GitHub Script and APIs | 60 min | Intermediate |
+| Lab 8 | Publishing to GitHub Packages and Container Registry | 75 min | Intermediate |
+| Lab 9 | Reusable Workflows and Artifact Management | 60 min | Intermediate |
+| Lab 10 | Enterprise Management and Self-Hosted Runners | 90 min | Advanced |
 
 ## 🛠️ Required Tools
 
