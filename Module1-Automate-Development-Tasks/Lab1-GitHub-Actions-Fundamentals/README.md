@@ -510,61 +510,523 @@ There are three types of actions you can create:
            run: echo "Building..."
    ```
 
-### Exercise 6: Azure Integration Overview
+### Exercise 6: Hands-On Azure Web App Deployment
 
-**Objective:** Understand how GitHub Actions integrates with Azure services.
+**Objective:** Deploy a real Node.js web application to Azure App Service using GitHub Actions.
 
-#### Steps:
+**Duration:** 45-60 minutes
 
-1. **Common Azure Integration Patterns**
+**What You'll Learn:**
+- Create an Azure Web App using Azure Portal or CLI
+- Configure GitHub repository with Azure credentials
+- Build and deploy a Node.js application automatically
+- Test the deployed application in Azure
 
-   **Pattern 1: Azure Authentication**
-   ```yaml
-   - name: Login to Azure
-     uses: azure/login@v1
-     with:
-       creds: ${{ secrets.AZURE_CREDENTIALS }}
+---
+
+#### Part 1: Create a Simple Node.js Application
+
+1. **Create a new repository in your GitHub account**
+   
+   Navigate to GitHub and create a new repository:
+   - Repository name: `github-actions-azure-demo`
+   - Description: "Demo app for GitHub Actions + Azure deployment"
+   - Set to **Public** or **Private**
+   - ✅ Check "Add a README file"
+   - Click **Create repository**
+
+2. **Clone the repository to your local machine**
+
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/github-actions-azure-demo.git
+   cd github-actions-azure-demo
    ```
 
-   **Pattern 2: Deploy to Azure Web App**
+3. **Create a simple Node.js web application**
+
+   Create `package.json`:
+   ```json
+   {
+     "name": "azure-demo-app",
+     "version": "1.0.0",
+     "description": "Demo app for GitHub Actions and Azure",
+     "main": "server.js",
+     "scripts": {
+       "start": "node server.js",
+       "test": "echo \"No tests yet\" && exit 0"
+     },
+     "engines": {
+       "node": ">=18.0.0"
+     },
+     "dependencies": {
+       "express": "^4.18.2"
+     }
+   }
+   ```
+
+4. **Create `server.js`**
+
+   ```javascript
+   const express = require('express');
+   const app = express();
+   const PORT = process.env.PORT || 3000;
+
+   app.get('/', (req, res) => {
+     res.send(`
+       <html>
+         <head>
+           <title>GitHub Actions + Azure Demo</title>
+           <style>
+             body {
+               font-family: Arial, sans-serif;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+               color: white;
+               display: flex;
+               justify-content: center;
+               align-items: center;
+               height: 100vh;
+               margin: 0;
+             }
+             .container {
+               text-align: center;
+               background: rgba(255,255,255,0.1);
+               padding: 50px;
+               border-radius: 20px;
+               box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+             }
+             h1 { font-size: 3em; margin: 0; }
+             p { font-size: 1.2em; }
+             .badge { 
+               background: #28a745; 
+               padding: 10px 20px; 
+               border-radius: 5px;
+               display: inline-block;
+               margin-top: 20px;
+             }
+           </style>
+         </head>
+         <body>
+           <div class="container">
+             <h1>🚀 Deployment Successful!</h1>
+             <p>This app was deployed using <strong>GitHub Actions</strong></p>
+             <p>Running on <strong>Azure App Service</strong></p>
+             <div class="badge">✅ CI/CD Pipeline Active</div>
+             <p style="margin-top: 30px; font-size: 0.9em;">
+               Deployed at: ${new Date().toLocaleString()}
+             </p>
+           </div>
+         </body>
+       </html>
+     `);
+   });
+
+   app.get('/health', (req, res) => {
+     res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+   });
+
+   app.listen(PORT, () => {
+     console.log(`Server running on port ${PORT}`);
+   });
+   ```
+
+5. **Create `.gitignore`**
+
+   ```
+   node_modules/
+   npm-debug.log
+   .env
+   .DS_Store
+   ```
+
+6. **Test the application locally** (optional)
+
+   ```bash
+   npm install
+   npm start
+   ```
+   
+   Visit `http://localhost:3000` to verify it works.
+
+7. **Commit and push to GitHub**
+
+   ```bash
+   git add .
+   git commit -m "Add Node.js application"
+   git push origin main
+   ```
+
+---
+
+#### Part 2: Create Azure Web App
+
+**Option A: Using Azure Portal (Recommended for Beginners)**
+
+1. **Sign in to Azure Portal**
+   - Go to [https://portal.azure.com](https://portal.azure.com)
+   - Sign in with your Azure account
+
+2. **Create a new Web App**
+   - Click **"Create a resource"**
+   - Search for **"Web App"**
+   - Click **Create**
+
+3. **Configure the Web App**
+   
+   **Basics tab:**
+   - **Subscription:** Select your subscription
+   - **Resource Group:** Create new → Name it `rg-github-actions-demo`
+   - **Name:** `webapp-github-demo-[YOUR-NAME]` (must be globally unique)
+   - **Publish:** Code
+   - **Runtime stack:** Node 18 LTS
+   - **Operating System:** Linux
+   - **Region:** Choose closest to you (e.g., East US)
+   - **Pricing Plan:** Click "Explore pricing plans"
+     - Select **F1 (Free)** for testing
+     - Click **Select**
+
+4. **Review + Create**
+   - Click **"Review + create"**
+   - Verify settings
+   - Click **Create**
+   - Wait 1-2 minutes for deployment
+
+5. **Download Publish Profile**
+   - Once deployed, click **"Go to resource"**
+   - In the Web App overview, click **"Get publish profile"** (top toolbar)
+   - Save the downloaded `.PublishSettings` file
+
+**Option B: Using Azure CLI (Advanced)**
+
+```bash
+# Login to Azure
+az login
+
+# Create resource group
+az group create --name rg-github-actions-demo --location eastus
+
+# Create App Service plan (Free tier)
+az appservice plan create \
+  --name plan-github-demo \
+  --resource-group rg-github-actions-demo \
+  --sku F1 \
+  --is-linux
+
+# Create Web App
+az webapp create \
+  --name webapp-github-demo-YOUR-NAME \
+  --resource-group rg-github-actions-demo \
+  --plan plan-github-demo \
+  --runtime "NODE:18-lts"
+
+# Download publish profile
+az webapp deployment list-publishing-profiles \
+  --name webapp-github-demo-YOUR-NAME \
+  --resource-group rg-github-actions-demo \
+  --xml > publish-profile.xml
+```
+
+---
+
+#### Part 3: Configure GitHub Secrets
+
+1. **Open the publish profile file**
+   - Open the downloaded `.PublishSettings` file in a text editor
+   - **Copy ALL the content** (it's XML format)
+
+2. **Add to GitHub Secrets**
+   - Go to your GitHub repository
+   - Click **Settings** → **Secrets and variables** → **Actions**
+   - Click **"New repository secret"**
+   - **Name:** `AZURE_WEBAPP_PUBLISH_PROFILE`
+   - **Value:** Paste the entire XML content from publish profile
+   - Click **Add secret**
+
+3. **Verify the secret**
+   - You should now see `AZURE_WEBAPP_PUBLISH_PROFILE` listed
+   - The value will be hidden (shows `***`)
+
+---
+
+#### Part 4: Create GitHub Actions Workflow
+
+1. **Create workflow directory**
+
+   In your local repository:
+   ```bash
+   mkdir -p .github/workflows
+   ```
+
+2. **Create deployment workflow**
+
+   Create `.github/workflows/azure-deploy.yml`:
+
    ```yaml
-   - name: Deploy to Azure Web App
+   name: Deploy to Azure Web App
+
+   on:
+     push:
+       branches: [ main ]
+     workflow_dispatch:  # Allow manual trigger
+
+   env:
+     AZURE_WEBAPP_NAME: webapp-github-demo-YOUR-NAME  # Replace with YOUR app name
+
+   jobs:
+     build-and-deploy:
+       runs-on: ubuntu-latest
+       
+       steps:
+       # Step 1: Checkout code
+       - name: 📥 Checkout code
+         uses: actions/checkout@v4
+
+       # Step 2: Setup Node.js
+       - name: 🔧 Setup Node.js
+         uses: actions/setup-node@v4
+         with:
+           node-version: '18'
+           cache: 'npm'
+
+       # Step 3: Install dependencies
+       - name: 📦 Install dependencies
+         run: npm ci
+
+       # Step 4: Run tests (if any)
+       - name: 🧪 Run tests
+         run: npm test
+
+       # Step 5: Deploy to Azure Web App
+       - name: 🚀 Deploy to Azure Web App
+         uses: azure/webapps-deploy@v2
+         with:
+           app-name: ${{ env.AZURE_WEBAPP_NAME }}
+           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+           package: .
+
+       # Step 6: Verify deployment
+       - name: ✅ Verify deployment
+         run: |
+           echo "🎉 Deployment complete!"
+           echo "🌐 Visit: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+   ```
+
+3. **IMPORTANT: Update the workflow**
+   - Replace `webapp-github-demo-YOUR-NAME` with your actual Azure Web App name
+   - This must match exactly what you created in Azure
+
+4. **Commit and push the workflow**
+
+   ```bash
+   git add .github/workflows/azure-deploy.yml
+   git commit -m "Add Azure deployment workflow"
+   git push origin main
+   ```
+
+---
+
+#### Part 5: Monitor and Test the Deployment
+
+1. **Watch the workflow run**
+   - Go to your GitHub repository
+   - Click the **Actions** tab
+   - You should see "Deploy to Azure Web App" workflow running
+   - Click on it to watch real-time logs
+
+2. **Verify each step completes:**
+   - ✅ Checkout code
+   - ✅ Setup Node.js
+   - ✅ Install dependencies
+   - ✅ Run tests
+   - ✅ Deploy to Azure Web App
+   - ✅ Verify deployment
+
+3. **Check for errors**
+   - If any step fails (red ❌), click on it to see error details
+   - Common issues:
+     - Wrong app name in workflow
+     - Publish profile not added correctly
+     - Azure Web App not created properly
+
+4. **Test the deployed application**
+   
+   Open your browser and visit:
+   ```
+   https://webapp-github-demo-YOUR-NAME.azurewebsites.net
+   ```
+   
+   You should see your colorful deployment success page!
+
+5. **Test the health endpoint**
+   ```
+   https://webapp-github-demo-YOUR-NAME.azurewebsites.net/health
+   ```
+   
+   Should return JSON:
+   ```json
+   {
+     "status": "healthy",
+     "timestamp": "2026-01-11T..."
+   }
+   ```
+
+6. **Verify in Azure Portal**
+   - Go to Azure Portal
+   - Navigate to your Web App
+   - Click **Browse** to open the site
+   - Check **Deployment Center** to see deployment history
+
+---
+
+#### Part 6: Test Continuous Deployment
+
+1. **Make a change to the app**
+
+   Edit `server.js` and update the title:
+   ```javascript
+   <h1>🎯 Updated via GitHub Actions!</h1>
+   <p>This deployment was triggered automatically</p>
+   ```
+
+2. **Commit and push**
+   ```bash
+   git add server.js
+   git commit -m "Update welcome message"
+   git push origin main
+   ```
+
+3. **Watch automatic deployment**
+   - Go to Actions tab in GitHub
+   - New workflow run should start automatically
+   - Wait for completion (~2-3 minutes)
+   - Refresh your browser at the Azure URL
+   - You should see the updated message!
+
+---
+
+#### Verification Checklist
+
+Make sure you can answer YES to all:
+
+- [ ] ✅ Created Node.js application with package.json and server.js
+- [ ] ✅ Pushed code to GitHub repository
+- [ ] ✅ Created Azure Web App (Free tier is fine)
+- [ ] ✅ Downloaded publish profile from Azure
+- [ ] ✅ Added publish profile as GitHub Secret
+- [ ] ✅ Created GitHub Actions workflow file
+- [ ] ✅ Workflow runs successfully (all green ✅)
+- [ ] ✅ Can access application at azurewebsites.net URL
+- [ ] ✅ Application shows correct content
+- [ ] ✅ Made a code change and saw automatic redeployment
+
+---
+
+#### Understanding What Happened
+
+**The CI/CD Pipeline:**
+1. **Trigger:** You pushed code to the `main` branch
+2. **Build:** GitHub Actions checked out code, installed dependencies, ran tests
+3. **Deploy:** Workflow used Azure credentials to deploy to App Service
+4. **Verify:** Application is live and accessible via HTTPS
+
+**Key Azure Concepts:**
+- **App Service:** Platform-as-a-Service (PaaS) for hosting web apps
+- **Publish Profile:** Contains deployment credentials (FTP/Web Deploy)
+- **Resource Group:** Logical container for Azure resources
+- **App Service Plan:** Defines compute resources (CPU, memory)
+
+**Key GitHub Actions Concepts:**
+- **Secrets:** Secure storage for sensitive data (credentials)
+- **Workflow:** Automated process defined in YAML
+- **Actions:** Reusable units (`azure/webapps-deploy@v2`)
+- **Environment variables:** Store configuration (`AZURE_WEBAPP_NAME`)
+
+---
+
+#### Troubleshooting Common Issues
+
+**Issue 1: "App name not found"**
+- ✅ Verify `AZURE_WEBAPP_NAME` matches your Azure Web App exactly
+- Check Azure Portal for the correct name
+
+**Issue 2: "Publish profile invalid"**
+- ✅ Download a fresh publish profile from Azure Portal
+- Ensure you copied the ENTIRE XML content
+- Check no extra spaces or characters were added
+
+**Issue 3: "Deployment successful but site shows error"**
+- ✅ Check if `package.json` has correct start script
+- Verify `PORT` environment variable is used: `process.env.PORT`
+- Check Azure Web App logs in Portal → Log stream
+
+**Issue 4: "Workflow doesn't trigger"**
+- ✅ Ensure workflow file is in `.github/workflows/` directory
+- Verify file has `.yml` or `.yaml` extension
+- Check you pushed to the `main` branch
+
+**Issue 5: "npm install fails"**
+- ✅ Verify `package.json` is valid JSON
+- Check dependencies are available on npm registry
+
+---
+
+#### Challenge: Add Staging Environment
+
+**Advanced Exercise:** Create a staging slot and deploy to it first!
+
+1. **Create deployment slot in Azure:**
+   ```bash
+   az webapp deployment slot create \
+     --name webapp-github-demo-YOUR-NAME \
+     --resource-group rg-github-actions-demo \
+     --slot staging
+   ```
+
+2. **Download staging publish profile**
+
+3. **Add as new secret:** `AZURE_WEBAPP_PUBLISH_PROFILE_STAGING`
+
+4. **Modify workflow to deploy to staging:**
+   ```yaml
+   - name: Deploy to Staging
      uses: azure/webapps-deploy@v2
      with:
-       app-name: 'my-app'
-       publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+       app-name: ${{ env.AZURE_WEBAPP_NAME }}
+       publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_STAGING }}
+       slot-name: staging
    ```
 
-   **Pattern 3: Deploy ARM Templates**
-   ```yaml
-   - name: Deploy Azure Resources
-     uses: azure/arm-deploy@v1
-     with:
-       subscriptionId: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-       resourceGroupName: my-resource-group
-       template: ./azure/template.json
-   ```
+5. **Test staging:** `https://webapp-github-demo-YOUR-NAME-staging.azurewebsites.net`
 
-2. **Azure Services Commonly Automated with GitHub Actions**
+---
 
-   | Azure Service | Use Case | Action |
-   |---------------|----------|--------|
-   | App Service | Web app deployment | `azure/webapps-deploy` |
-   | AKS | Kubernetes deployment | `azure/aks-set-context` |
-   | Container Registry | Push Docker images | `azure/docker-login` |
-   | Functions | Serverless deployment | `azure/functions-action` |
-   | Static Web Apps | Static site deployment | `Azure/static-web-apps-deploy` |
-   | Storage | Upload artifacts | `azure/CLI` with blob commands |
+#### Clean Up Resources (When Done)
 
-3. **Security Best Practice: Using Secrets**
+**To avoid Azure charges:**
 
-   **Never hardcode credentials!** Instead:
-   
-   - Store sensitive data in GitHub Secrets
-   - Access via `${{ secrets.SECRET_NAME }}`
-   - Secrets are encrypted and never exposed in logs
+```bash
+# Delete the entire resource group (removes everything)
+az group delete --name rg-github-actions-demo --yes --no-wait
+```
 
-   **We'll practice this in upcoming labs.**
+Or in Azure Portal:
+1. Go to Resource Groups
+2. Select `rg-github-actions-demo`
+3. Click **Delete resource group**
+4. Type the name to confirm
+5. Click **Delete**
+
+---
+
+#### What's Next?
+
+This exercise gave you hands-on experience with:
+- ✅ Creating a deployable application
+- ✅ Setting up Azure infrastructure
+- ✅ Configuring CI/CD pipeline with GitHub Actions
+- ✅ Managing secrets securely
+- ✅ Automated testing and deployment
+
+**You're now ready for Lab 2** where you'll build more complex workflows!
 
 ## 📝 Knowledge Check
 
