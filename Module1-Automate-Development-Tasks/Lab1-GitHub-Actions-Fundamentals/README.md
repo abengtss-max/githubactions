@@ -690,10 +690,10 @@ There are three types of actions you can create:
    - Click **Create**
    - Wait 1-2 minutes for deployment
 
-5. **Download Publish Profile**
+5. **Note your Web App details** (you'll need these):
    - Once deployed, click **"Go to resource"**
-   - In the Web App overview, click **"Get publish profile"** (top toolbar)
-   - Save the downloaded `.PublishSettings` file
+   - **Copy the Web App name** (e.g., `webapp-github-demo-abengtss-max`)
+   - **Copy the Resource Group name** (e.g., `rg-github-actions-demo`)
 
 **Option B: Using Azure CLI (Advanced)**
 
@@ -717,37 +717,118 @@ az webapp create \
   --resource-group rg-github-actions-demo \
   --plan plan-github-demo \
   --runtime "NODE:18-lts"
-
-# Download publish profile
-az webapp deployment list-publishing-profiles \
-  --name webapp-github-demo-YOUR-NAME \
-  --resource-group rg-github-actions-demo \
-  --xml > publish-profile.xml
 ```
 
 ---
 
-#### Part 3: Configure GitHub Secrets
+#### Part 3: Create Azure Service Principal for GitHub
 
-1. **Open the publish profile file**
-   - Open the downloaded `.PublishSettings` file in a text editor
-   - **Copy ALL the content** (it's XML format)
+**Important:** Azure has disabled basic authentication (publish profiles) for security. We'll use the modern **Service Principal** method instead.
 
-2. **Add to GitHub Secrets**
-   - Go to your GitHub repository
-   - Click **Settings** → **Secrets and variables** → **Actions**
-   - Click **"New repository secret"**
-   - **Name:** `AZURE_WEBAPP_PUBLISH_PROFILE`
-   - **Value:** Paste the entire XML content from publish profile
-   - Click **Add secret**
+**Option A: Using Azure Cloud Shell (Easiest)**
 
-3. **Verify the secret**
-   - You should now see `AZURE_WEBAPP_PUBLISH_PROFILE` listed
-   - The value will be hidden (shows `***`)
+1. **Open Azure Cloud Shell**
+   - In Azure Portal, click the **Cloud Shell** icon (>_) in the top toolbar
+   - Select **Bash** or **PowerShell** (Bash recommended)
+   - Wait for it to initialize
+
+2. **Get your Subscription ID**
+   ```bash
+   az account show --query id -o tsv
+   ```
+   
+   **Copy this ID** - you'll need it in the next step.
+
+3. **Create Service Principal**
+   
+   Replace `YOUR-SUBSCRIPTION-ID` and `webapp-github-demo-YOUR-NAME` with your actual values:
+
+   ```bash
+   az ad sp create-for-rbac \
+     --name "github-actions-demo-sp" \
+     --role contributor \
+     --scopes /subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/rg-github-actions-demo \
+     --sdk-auth
+   ```
+
+   **Example:**
+   ```bash
+   az ad sp create-for-rbac \
+     --name "github-actions-demo-sp" \
+     --role contributor \
+     --scopes /subscriptions/c001a7f0-e371-42c4-99b9-1a23848a72a0/resourceGroups/rg-github-actions-demo \
+     --sdk-auth
+   ```
+
+4. **Copy the entire JSON output**
+   
+   You'll get output like this:
+   ```json
+   {
+     "clientId": "12345678-1234-1234-1234-123456789abc",
+     "clientSecret": "your-secret-here",
+     "subscriptionId": "c001a7f0-e371-42c4-99b9-1a23848a72a0",
+     "tenantId": "87654321-4321-4321-4321-abcdef123456",
+     "activeDirectoryEndpointUrl": "https://login.microsoftonline.com",
+     "resourceManagerEndpointUrl": "https://management.azure.com/",
+     "activeDirectoryGraphResourceId": "https://graph.windows.net/",
+     "sqlManagementEndpointUrl": "https://management.core.windows.net:8443/",
+     "galleryEndpointUrl": "https://gallery.azure.com/",
+     "managementEndpointUrl": "https://management.core.windows.net/"
+   }
+   ```
+
+   **⚠️ IMPORTANT:** Copy this ENTIRE JSON output immediately - you won't be able to see the secret again!
+
+**Option B: Using Local Azure CLI**
+
+If you have Azure CLI installed locally:
+
+```bash
+# Login to Azure
+az login
+
+# Get subscription ID
+az account show --query id -o tsv
+
+# Create service principal (replace YOUR-SUBSCRIPTION-ID)
+az ad sp create-for-rbac \
+  --name "github-actions-demo-sp" \
+  --role contributor \
+  --scopes /subscriptions/YOUR-SUBSCRIPTION-ID/resourceGroups/rg-github-actions-demo \
+  --sdk-auth
+```
+
+Copy the entire JSON output.
 
 ---
 
-#### Part 4: Create GitHub Actions Workflow
+#### Part 4: Configure GitHub Secrets
+
+1. **Add Azure Credentials to GitHub**
+   - Go to your GitHub repository: `https://github.com/YOUR-USERNAME/github-actions-azure-demo`
+   - Click **Settings** → **Secrets and variables** → **Actions**
+   - Click **"New repository secret"**
+   
+   **First Secret:**
+   - **Name:** `AZURE_CREDENTIALS`
+   - **Value:** Paste the entire JSON output from the service principal creation
+   - Click **Add secret**
+
+2. **Add Web App Name**
+   - Click **"New repository secret"** again
+   - **Name:** `AZURE_WEBAPP_NAME`
+   - **Value:** Your web app name (e.g., `webapp-github-demo-abengtss-max`)
+   - Click **Add secret**
+
+3. **Verify your secrets**
+   - You should now see both secrets listed:
+     - `AZURE_CREDENTIALS` (shows `***`)
+     - `AZURE_WEBAPP_NAME` (shows `***`)
+
+---
+
+#### Part 5: Create GitHub Actions Workflow
 
 1. **Create workflow directory**
 
@@ -767,9 +848,6 @@ az webapp deployment list-publishing-profiles \
      push:
        branches: [ main ]
      workflow_dispatch:  # Allow manual trigger
-
-   env:
-     AZURE_WEBAPP_NAME: webapp-github-demo-YOUR-NAME  # Replace with YOUR app name
 
    jobs:
      build-and-deploy:
@@ -795,24 +873,36 @@ az webapp deployment list-publishing-profiles \
        - name: 🧪 Run tests
          run: npm test
 
-       # Step 5: Deploy to Azure Web App
+       # Step 5: Login to Azure using Service Principal
+       - name: 🔐 Azure Login
+         uses: azure/login@v1
+         with:
+           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+       # Step 6: Deploy to Azure Web App
        - name: 🚀 Deploy to Azure Web App
          uses: azure/webapps-deploy@v2
          with:
-           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+           app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
            package: .
 
-       # Step 6: Verify deployment
+       # Step 7: Azure Logout (security best practice)
+       - name: 🔓 Azure Logout
+         run: az logout
+         if: always()
+
+       # Step 8: Verify deployment
        - name: ✅ Verify deployment
          run: |
            echo "🎉 Deployment complete!"
-           echo "🌐 Visit: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+           echo "🌐 Visit: https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net"
    ```
 
-3. **IMPORTANT: Update the workflow**
-   - Replace `webapp-github-demo-YOUR-NAME` with your actual Azure Web App name
-   - This must match exactly what you created in Azure
+3. **Understanding the workflow changes:**
+   - ✅ **No hardcoded app name** - uses `${{ secrets.AZURE_WEBAPP_NAME }}`
+   - ✅ **Service Principal authentication** - more secure than publish profiles
+   - ✅ **Azure logout** - cleans up session after deployment
+   - ✅ **Uses secrets for all sensitive data**
 
 4. **Commit and push the workflow**
 
@@ -824,7 +914,7 @@ az webapp deployment list-publishing-profiles \
 
 ---
 
-#### Part 5: Monitor and Test the Deployment
+#### Part 6: Monitor and Test the Deployment
 
 1. **Watch the workflow run**
    - Go to your GitHub repository
@@ -837,35 +927,38 @@ az webapp deployment list-publishing-profiles \
    - ✅ Setup Node.js
    - ✅ Install dependencies
    - ✅ Run tests
+   - ✅ Azure Login (new with Service Principal)
    - ✅ Deploy to Azure Web App
+   - ✅ Azure Logout
    - ✅ Verify deployment
 
 3. **Check for errors**
    - If any step fails (red ❌), click on it to see error details
    - Common issues:
-     - Wrong app name in workflow
-     - Publish profile not added correctly
+     - `AZURE_CREDENTIALS` secret not added correctly
+     - `AZURE_WEBAPP_NAME` secret has wrong value
+     - Service Principal doesn't have correct permissions
      - Azure Web App not created properly
 
 4. **Test the deployed application**
    
-   Open your browser and visit:
+   Open your browser and visit (replace with YOUR app name):
    ```
-   https://webapp-github-demo-YOUR-NAME.azurewebsites.net
+   https://webapp-github-demo-abengtss-max.azurewebsites.net
    ```
    
    You should see your colorful deployment success page!
 
 5. **Test the health endpoint**
    ```
-   https://webapp-github-demo-YOUR-NAME.azurewebsites.net/health
+   https://webapp-github-demo-abengtss-max.azurewebsites.net/health
    ```
    
    Should return JSON:
    ```json
    {
      "status": "healthy",
-     "timestamp": "2026-01-11T..."
+     "timestamp": "2026-01-12T..."
    }
    ```
 
@@ -874,10 +967,11 @@ az webapp deployment list-publishing-profiles \
    - Navigate to your Web App
    - Click **Browse** to open the site
    - Check **Deployment Center** to see deployment history
+   - You'll see "External Git" as deployment source
 
 ---
 
-#### Part 6: Test Continuous Deployment
+#### Part 7: Test Continuous Deployment
 
 1. **Make a change to the app**
 
@@ -910,8 +1004,9 @@ Make sure you can answer YES to all:
 - [ ] ✅ Created Node.js application with package.json and server.js
 - [ ] ✅ Pushed code to GitHub repository
 - [ ] ✅ Created Azure Web App (Free tier is fine)
-- [ ] ✅ Downloaded publish profile from Azure
-- [ ] ✅ Added publish profile as GitHub Secret
+- [ ] ✅ Created Azure Service Principal with contributor role
+- [ ] ✅ Added `AZURE_CREDENTIALS` as GitHub Secret
+- [ ] ✅ Added `AZURE_WEBAPP_NAME` as GitHub Secret
 - [ ] ✅ Created GitHub Actions workflow file
 - [ ] ✅ Workflow runs successfully (all green ✅)
 - [ ] ✅ Can access application at azurewebsites.net URL
@@ -925,47 +1020,71 @@ Make sure you can answer YES to all:
 **The CI/CD Pipeline:**
 1. **Trigger:** You pushed code to the `main` branch
 2. **Build:** GitHub Actions checked out code, installed dependencies, ran tests
-3. **Deploy:** Workflow used Azure credentials to deploy to App Service
-4. **Verify:** Application is live and accessible via HTTPS
+3. **Authenticate:** Workflow logs into Azure using Service Principal credentials
+4. **Deploy:** Workflow deploys application to App Service
+5. **Cleanup:** Logs out of Azure (security best practice)
+6. **Verify:** Application is live and accessible via HTTPS
 
 **Key Azure Concepts:**
 - **App Service:** Platform-as-a-Service (PaaS) for hosting web apps
-- **Publish Profile:** Contains deployment credentials (FTP/Web Deploy)
+- **Service Principal:** Identity for applications to access Azure resources (like a service account)
 - **Resource Group:** Logical container for Azure resources
 - **App Service Plan:** Defines compute resources (CPU, memory)
+- **RBAC (Role-Based Access Control):** Service Principal has "Contributor" role on Resource Group
 
 **Key GitHub Actions Concepts:**
-- **Secrets:** Secure storage for sensitive data (credentials)
+- **Secrets:** Secure storage for sensitive data (credentials, passwords, tokens)
 - **Workflow:** Automated process defined in YAML
-- **Actions:** Reusable units (`azure/webapps-deploy@v2`)
-- **Environment variables:** Store configuration (`AZURE_WEBAPP_NAME`)
+- **Actions:** Reusable units (`azure/login@v1`, `azure/webapps-deploy@v2`)
+- **Service Principal Authentication:** More secure than basic auth (publish profiles)
+
+**Why Service Principal is Better:**
+- ✅ More secure - no basic authentication
+- ✅ Fine-grained permissions (only access specific resource group)
+- ✅ Can be rotated/revoked easily
+- ✅ Follows Azure best practices
+- ✅ Works with all Azure services
 
 ---
 
 #### Troubleshooting Common Issues
 
-**Issue 1: "App name not found"**
-- ✅ Verify `AZURE_WEBAPP_NAME` matches your Azure Web App exactly
-- Check Azure Portal for the correct name
+**Issue 1: "Azure login failed"**
+- ✅ Verify `AZURE_CREDENTIALS` secret contains the entire JSON output
+- Check no extra spaces or line breaks were added
+- Ensure the JSON is valid (use a JSON validator)
+- Verify the Service Principal was created successfully
 
-**Issue 2: "Publish profile invalid"**
-- ✅ Download a fresh publish profile from Azure Portal
-- Ensure you copied the ENTIRE XML content
-- Check no extra spaces or characters were added
+**Issue 2: "Error: AADSTS700016: Application not found"**
+- ✅ Service Principal was deleted or not created properly
+- Recreate the Service Principal using the `az ad sp create-for-rbac` command
+- Make sure you used the `--sdk-auth` flag
 
-**Issue 3: "Deployment successful but site shows error"**
+**Issue 3: "Error: The subscription is not registered to use Microsoft.Web"**
+- ✅ Your subscription needs to register the resource provider:
+  ```bash
+  az provider register --namespace Microsoft.Web
+  ```
+- Wait 5-10 minutes for registration to complete
+
+**Issue 4: "Deployment successful but site shows error"**
 - ✅ Check if `package.json` has correct start script
 - Verify `PORT` environment variable is used: `process.env.PORT`
 - Check Azure Web App logs in Portal → Log stream
 
-**Issue 4: "Workflow doesn't trigger"**
+**Issue 5: "Workflow doesn't trigger"**
 - ✅ Ensure workflow file is in `.github/workflows/` directory
 - Verify file has `.yml` or `.yaml` extension
 - Check you pushed to the `main` branch
 
-**Issue 5: "npm install fails"**
+**Issue 6: "npm install fails"**
 - ✅ Verify `package.json` is valid JSON
 - Check dependencies are available on npm registry
+
+**Issue 7: "Forbidden: The client with object id does not have authorization"**
+- ✅ Service Principal doesn't have correct permissions
+- Verify the scope includes your resource group in the `az ad sp create-for-rbac` command
+- Try giving broader scope: `/subscriptions/YOUR-SUBSCRIPTION-ID`
 
 ---
 
@@ -973,29 +1092,76 @@ Make sure you can answer YES to all:
 
 **Advanced Exercise:** Create a staging slot and deploy to it first!
 
-1. **Create deployment slot in Azure:**
+1. **Upgrade App Service Plan** (Staging requires Standard tier or higher)
+   ```bash
+   az appservice plan update \
+     --name plan-github-demo \
+     --resource-group rg-github-actions-demo \
+     --sku S1
+   ```
+   **Note:** This will incur charges (~$70/month). Use only for learning, then delete.
+
+2. **Create deployment slot in Azure:**
    ```bash
    az webapp deployment slot create \
-     --name webapp-github-demo-YOUR-NAME \
+     --name webapp-github-demo-abengtss-max \
      --resource-group rg-github-actions-demo \
      --slot staging
    ```
 
-2. **Download staging publish profile**
-
-3. **Add as new secret:** `AZURE_WEBAPP_PUBLISH_PROFILE_STAGING`
-
-4. **Modify workflow to deploy to staging:**
+3. **Update your workflow to deploy to staging first:**
    ```yaml
-   - name: Deploy to Staging
-     uses: azure/webapps-deploy@v2
-     with:
-       app-name: ${{ env.AZURE_WEBAPP_NAME }}
-       publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_STAGING }}
-       slot-name: staging
+   jobs:
+     deploy-to-staging:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+         
+         - name: Setup Node.js
+           uses: actions/setup-node@v4
+           with:
+             node-version: '18'
+             
+         - name: Install dependencies
+           run: npm ci
+           
+         - name: Azure Login
+           uses: azure/login@v1
+           with:
+             creds: ${{ secrets.AZURE_CREDENTIALS }}
+             
+         - name: Deploy to Staging Slot
+           uses: azure/webapps-deploy@v2
+           with:
+             app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+             slot-name: staging
+             package: .
+             
+     deploy-to-production:
+       needs: deploy-to-staging
+       runs-on: ubuntu-latest
+       environment: production  # Requires manual approval
+       steps:
+         - name: Azure Login
+           uses: azure/login@v1
+           with:
+             creds: ${{ secrets.AZURE_CREDENTIALS }}
+             
+         - name: Swap Staging to Production
+           run: |
+             az webapp deployment slot swap \
+               --name ${{ secrets.AZURE_WEBAPP_NAME }} \
+               --resource-group rg-github-actions-demo \
+               --slot staging \
+               --target-slot production
    ```
 
-5. **Test staging:** `https://webapp-github-demo-YOUR-NAME-staging.azurewebsites.net`
+4. **Test staging:** `https://webapp-github-demo-abengtss-max-staging.azurewebsites.net`
+
+5. **Set up GitHub Environment protection:**
+   - Go to Repository Settings → Environments
+   - Create "production" environment
+   - Add required reviewers for approval before production deployment
 
 ---
 
