@@ -100,6 +100,324 @@ branding:
   color: 'blue'
 ```
 
+---
+
+### 🔍 Understanding Inputs and Outputs (Deep Dive)
+
+This is one of the most important concepts in GitHub Actions. Let's break down exactly how data flows through your container action:
+
+#### **The Complete Data Flow**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     WORKFLOW (.github/workflows/xxx.yml)            │
+│                                                                     │
+│  - name: Run My Action                                             │
+│    id: my-step                    ← Step ID (used to reference)   │
+│    uses: user/action@v1                                            │
+│    with:                                                           │
+│      input-name: "value"          ← Input values passed here       │
+│                                                                     │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+                       │ GitHub Actions converts inputs to 
+                       │ environment variables automatically
+                       ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│                    CONTAINER ENVIRONMENT                            │
+│                                                                     │
+│  Environment Variables (automatically created):                    │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ INPUT_INPUT_NAME="value"    ← Uppercase, INPUT_ prefix      │  │
+│  │ INPUT_ANOTHER_INPUT="xyz"                                    │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  Your Script (entrypoint.sh) reads these:                          │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │ VALUE="${INPUT_INPUT_NAME}"   ← Access via env var          │  │
+│  │ echo "You passed: $VALUE"                                    │  │
+│  │                                                               │  │
+│  │ # Set outputs for other steps to use                         │  │
+│  │ echo "::set-output name=result::success"  ← Output syntax    │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+                       │ Outputs are captured by GitHub Actions
+                       ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│              SUBSEQUENT WORKFLOW STEPS                              │
+│                                                                     │
+│  - name: Use Output                                                │
+│    run: |                                                          │
+│      echo "${{ steps.my-step.outputs.result }}"  ← Reference      │
+│                          ↑       ↑          ↑                      │
+│                       step ID  .outputs  output name               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### **Input Details**
+
+**1. How to Define Inputs** (in `action.yml`):
+
+```yaml
+inputs:
+  azure-region:              # ← Input name (use lowercase-with-hyphens)
+    description: 'Azure region to use'  # ← What this input is for
+    required: true           # ← Is it mandatory? (true/false)
+    default: 'eastus'        # ← Default value if not provided
+```
+
+**2. How to Pass Inputs** (in workflow):
+
+```yaml
+- uses: your/action@v1
+  with:
+    azure-region: 'westus'   # ← Input name matches action.yml
+```
+
+**3. How to Read Inputs** (in your script):
+
+```bash
+#!/bin/sh
+# GitHub automatically converts:
+#   azure-region  →  INPUT_AZURE_REGION
+#
+# Conversion rules:
+# - Add "INPUT_" prefix
+# - Convert to UPPERCASE
+# - Replace hyphens with underscores
+
+REGION="${INPUT_AZURE_REGION}"    # ← Access as environment variable
+echo "Using region: $REGION"
+```
+
+**Input Naming Convention Examples:**
+
+| action.yml input name | Environment Variable | Script Access |
+|----------------------|---------------------|---------------|
+| `azure-region` | `INPUT_AZURE_REGION` | `$INPUT_AZURE_REGION` |
+| `user-name` | `INPUT_USER_NAME` | `$INPUT_USER_NAME` |
+| `api-key` | `INPUT_API_KEY` | `$INPUT_API_KEY` |
+| `enable-cache` | `INPUT_ENABLE_CACHE` | `$INPUT_ENABLE_CACHE` |
+
+#### **Output Details**
+
+**1. How to Define Outputs** (in `action.yml`):
+
+```yaml
+outputs:
+  result-message:           # ← Output name (lowercase-with-hyphens)
+    description: 'The result message from the action'
+  resource-count:
+    description: 'Number of resources found'
+```
+
+**2. How to Set Outputs** (in your script):
+
+```bash
+#!/bin/sh
+# Calculate something
+COUNT=42
+MESSAGE="Found $COUNT resources"
+
+# Set output using special syntax:
+# echo "::set-output name=OUTPUT-NAME::VALUE"
+echo "::set-output name=resource-count::${COUNT}"
+echo "::set-output name=result-message::${MESSAGE}"
+
+# Note: Output names in set-output use lowercase-with-hyphens
+```
+
+**3. How to Use Outputs** (in subsequent workflow steps):
+
+```yaml
+- name: Run Action
+  id: my-action              # ← MUST set an ID to reference outputs
+  uses: your/action@v1
+
+- name: Use the Output
+  run: |
+    # Syntax: ${{ steps.STEP-ID.outputs.OUTPUT-NAME }}
+    #              ↑      ↑         ↑        ↑
+    #          keyword  step ID  keyword  output name
+    
+    echo "Count: ${{ steps.my-action.outputs.resource-count }}"
+    echo "Message: ${{ steps.my-action.outputs.result-message }}"
+```
+
+#### **Complete Real-World Example**
+
+Let's see a complete flow with actual code:
+
+**action.yml:**
+```yaml
+name: 'Deploy to Azure'
+inputs:
+  app-name:
+    description: 'Name of the Azure app'
+    required: true
+  environment:
+    description: 'Deployment environment'
+    required: false
+    default: 'production'
+outputs:
+  deployment-url:
+    description: 'URL of deployed application'
+  deployment-status:
+    description: 'Status of deployment'
+```
+
+**entrypoint.sh:**
+```bash
+#!/bin/sh
+set -e
+
+# 1. READ INPUTS (automatically available as environment variables)
+APP_NAME="${INPUT_APP_NAME}"        # From 'app-name' input
+ENVIRONMENT="${INPUT_ENVIRONMENT}"  # From 'environment' input
+
+echo "Deploying ${APP_NAME} to ${ENVIRONMENT}..."
+
+# 2. DO YOUR WORK
+# (deploy logic here)
+DEPLOY_URL="https://${APP_NAME}.azurewebsites.net"
+STATUS="success"
+
+# 3. SET OUTPUTS (for other steps to use)
+echo "::set-output name=deployment-url::${DEPLOY_URL}"
+echo "::set-output name=deployment-status::${STATUS}"
+
+# 4. EXIT
+exit 0
+```
+
+**Workflow (using the action):**
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Use the action
+      - name: Deploy Application
+        id: deploy                    # ← ID is crucial for referencing outputs
+        uses: myuser/deploy-action@v1
+        with:
+          app-name: 'my-web-app'      # ← Passed as INPUT_APP_NAME
+          environment: 'staging'       # ← Passed as INPUT_ENVIRONMENT
+      
+      # Step 2: Use the outputs from Step 1
+      - name: Show Deployment Info
+        run: |
+          echo "Deployed to: ${{ steps.deploy.outputs.deployment-url }}"
+          echo "Status: ${{ steps.deploy.outputs.deployment-status }}"
+      
+      # Step 3: Use output in conditional
+      - name: Notify on Success
+        if: steps.deploy.outputs.deployment-status == 'success'
+        run: echo "Deployment successful!"
+      
+      # Step 4: Use output in another action
+      - name: Test Deployment
+        run: curl "${{ steps.deploy.outputs.deployment-url }}/health"
+```
+
+#### **Common Mistakes and Solutions**
+
+**❌ Mistake 1: Forgetting the step ID**
+```yaml
+- name: Run Action
+  uses: myuser/action@v1   # ← No ID!
+
+- name: Use Output
+  run: echo "${{ steps.???.outputs.result }}"  # ← Can't reference!
+```
+✅ **Solution:** Always add `id:` to steps whose outputs you need:
+```yaml
+- name: Run Action
+  id: my-step              # ← Add this!
+  uses: myuser/action@v1
+```
+
+**❌ Mistake 2: Wrong input name casing in script**
+```bash
+# action.yml has: azure-region
+# Wrong:
+REGION="${INPUT_azure-region}"    # ← Won't work
+REGION="${INPUT_AZURE-REGION}"    # ← Won't work (hyphen)
+
+# Correct:
+REGION="${INPUT_AZURE_REGION}"    # ← Underscores, all caps
+```
+
+**❌ Mistake 3: Wrong output syntax**
+```bash
+# Wrong:
+echo "result=success"                           # ← Won't work
+echo "::output name=result::success"            # ← Wrong keyword
+echo "::set-output result success"              # ← Wrong format
+
+# Correct:
+echo "::set-output name=result::success"        # ← Correct!
+```
+
+**❌ Mistake 4: Referencing output without step ID**
+```yaml
+# Wrong:
+echo "${{ outputs.result }}"                    # ← Missing steps.<id>
+
+# Correct:
+echo "${{ steps.my-step.outputs.result }}"      # ← Full reference
+```
+
+#### **Advanced Tips**
+
+**Tip 1: Multiline Outputs**
+```bash
+# For multiline outputs, use EOF delimiter
+OUTPUT=$(cat <<EOF
+Line 1
+Line 2
+Line 3
+EOF
+)
+echo "::set-output name=multiline::${OUTPUT}"
+```
+
+**Tip 2: JSON Outputs**
+```bash
+# Output complex data as JSON
+JSON_DATA='{"status":"success","count":42,"items":["a","b","c"]}'
+echo "::set-output name=data::${JSON_DATA}"
+
+# Use in workflow:
+# ${{ fromJSON(steps.my-step.outputs.data).count }}
+```
+
+**Tip 3: Optional Inputs with Validation**
+```bash
+# Check if optional input was provided
+if [ -n "${INPUT_OPTIONAL_PARAM}" ]; then
+    echo "Optional param provided: ${INPUT_OPTIONAL_PARAM}"
+else
+    echo "Using default behavior"
+fi
+```
+
+**Tip 4: Pass Secrets Securely**
+```yaml
+# Workflow:
+- uses: myuser/action@v1
+  with:
+    api-key: ${{ secrets.API_KEY }}   # ← Pass secret as input
+
+# In script, it's automatically available:
+API_KEY="${INPUT_API_KEY}"            # ← Never logged in output
+```
+
+---
+
 ## 🔬 Lab Exercises
 
 ### Exercise 1: Create a Simple Container Action
